@@ -24,7 +24,7 @@ This plugin gives a responsive and tactile experience to understand your changin
   - the esp is literally three bog-default imod forms and zero script refs -- trivially easy to merge.
 
 ## Installation
-Get StatFX from [Nexus](//TODO) and install like any other mod (hopefully using a mod manager like [MO2](https://www.nexusmods.com/skyrimspecialedition/mods/6194))
+Get StatFX from [Nexus](https://www.nexusmods.com/skyrimspecialedition/mods/112605) and install like any other mod (hopefully using a mod manager like [MO2](https://www.nexusmods.com/skyrimspecialedition/mods/6194))
 
 ## Configuration
 Edit [StatFx.ini](StatFx.ini) in the Data/SKSE/Plugins folder.
