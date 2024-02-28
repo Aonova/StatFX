@@ -220,45 +220,44 @@ namespace easing
         return t;
     }
 
-    // get easing function from string name. See https://easings.net/ for valid names. Returns linear if invalid name
+    // get easing function from string name. See https://easings.net/ for valid names (case insensitive). Returns linear if unrecognized
     easingFunction getEasingFunctionString( std::string name ) {
-        int toUse;
-        if (name.compare("easeInSine") == 0) { toUse = easing_functions::EaseInSine; }
-        else if (name.compare("easeOutSine") == 0) { toUse = easing_functions::EaseOutSine; }
-        else if (name.compare("easeInOutSine") == 0) { toUse = easing_functions::EaseInOutSine; }
-        else if (name.compare("easeInQuad") == 0) { toUse = easing_functions::EaseInQuad; }
-        else if (name.compare("easeOutQuad") == 0) { toUse = easing_functions::EaseOutQuad; }
-        else if (name.compare("easeInOutQuad") == 0) { toUse = easing_functions::EaseInOutQuad; }
-        else if (name.compare("easeInCubic") == 0) { toUse = easing_functions::EaseInCubic; }
-        else if (name.compare("easeOutCubic") == 0) { toUse = easing_functions::EaseOutCubic; }
-        else if (name.compare("easeInOutCubic") == 0) { toUse = easing_functions::EaseInOutCubic; }
-        else if (name.compare("easeInQuart") == 0) { toUse = easing_functions::EaseInQuart; }
-        else if (name.compare("easeOutQuart") == 0) { toUse = easing_functions::EaseOutQuart; }
-        else if (name.compare("easeInOutQuart") == 0) { toUse = easing_functions::EaseInOutQuart; }
-        else if (name.compare("easeInQuint") == 0) { toUse = easing_functions::EaseInQuint; }
-        else if (name.compare("easeOutQuint") == 0) { toUse = easing_functions::EaseOutQuint; }
-        else if (name.compare("easeInOutQuint") == 0) { toUse = easing_functions::EaseInOutQuint; }
-        else if (name.compare("easeInExpo") == 0) { toUse = easing_functions::EaseInExpo; }
-        else if (name.compare("easeOutExpo") == 0) { toUse = easing_functions::EaseOutExpo; }
-        else if (name.compare("easeInOutExpo") == 0) { toUse = easing_functions::EaseInOutExpo; }
-        else if (name.compare("easeInCirc") == 0) { toUse = easing_functions::EaseInCirc; }
-        else if (name.compare("easeOutCirc") == 0) { toUse = easing_functions::EaseOutCirc; }
-        else if (name.compare("easeInOutCirc") == 0) { toUse = easing_functions::EaseInOutCirc; }
-        else if (name.compare("easeInBack") == 0) { toUse = easing_functions::EaseInBack; }
-        else if (name.compare("easeOutBack") == 0) { toUse = easing_functions::EaseOutBack; }
-        else if (name.compare("easeInOutBack") == 0) { toUse = easing_functions::EaseInOutBack; }
-        else if (name.compare("easeInElastic") == 0) { toUse = easing_functions::EaseInElastic; }
-        else if (name.compare("easeOutElastic") == 0) { toUse = easing_functions::EaseOutElastic; }
-        else if (name.compare("easeInOutElastic") == 0) { toUse = easing_functions::EaseInOutElastic; }
-        else if (name.compare("easeInBounce") == 0) { toUse = easing_functions::EaseInBounce; }
-        else if (name.compare("easeOutBounce") == 0) { toUse = easing_functions::EaseOutBounce; }
-        else if (name.compare("easeInOutBounce") == 0) { toUse = easing_functions::EaseInOutBounce; }
-        else { toUse = -1; }
-        if (toUse != -1) {
-            return getEasingFunction( (easing_functions)toUse );
-        } else {
-            return linear;
-        }
+        std::map< std::string, easing_functions > easingStrToFunc = {
+            {"easeinsine", EaseInSine}, {"sine", EaseInSine}, {"sin(x)", EaseInSine}, {"1", EaseInSine},
+            {"easeoutsine", EaseOutSine},
+            {"easeinoutsine", EaseInOutSine},
+            {"easeinquad", EaseInQuad}, {"quad", EaseInQuad}, {"x^2", EaseInQuad}, {"quadratic", EaseInQuad}, {"2", EaseInSine},
+            {"easeoutquad", EaseOutQuad},
+            {"easeinoutquad", EaseInOutQuad},
+            {"easeincubic", EaseInCubic}, {"cubic", EaseInCubic}, {"x^3", EaseInCubic}, {"cubed", EaseInCubic}, {"3", EaseInCubic},
+            {"easeoutcubic", EaseOutCubic},
+            {"easeinoutcubic", EaseInOutCubic},
+            {"easeinquart", EaseInQuart}, {"quart", EaseInQuart}, {"x^4", EaseInQuart}, {"4", EaseInQuart},
+            {"easeoutquart", EaseOutQuart},
+            {"easeinoutquart", EaseInOutQuart},
+            {"easeinquint", EaseInQuint}, {"quint", EaseInQuint}, {"x^5", EaseInQuint}, {"5", EaseInQuint},
+            {"easeoutquint", EaseOutQuint},
+            {"easeinoutquint", EaseInOutQuint},
+            {"easeinexpo", EaseInExpo}, {"expo", EaseInExpo}, {"2^x", EaseInExpo}, {"6", EaseInExpo},
+            {"easeoutexpo", EaseOutExpo},
+            {"easeinoutexpo", EaseInOutExpo},
+            {"easeincirc", EaseInCirc}, {"circ", EaseInCirc}, {"circle", EaseInCirc}, {"7", EaseInCirc},
+            {"easeoutcirc", EaseOutCirc},
+            {"easeinoutcirc", EaseInOutCirc},
+            {"easeinback", EaseInBack}, {"back", EaseInBack},
+            {"easeoutback", EaseOutBack},
+            {"easeinoutback", EaseInOutBack},
+            {"easeinelastic", EaseInElastic}, {"elastic", EaseInElastic},
+            {"easeoutelastic", EaseOutElastic},
+            {"easeinoutelastic", EaseInOutElastic},
+            {"easeinbounce", EaseInBounce}, {"bounce", EaseInBounce},
+            {"easeoutbounce", EaseOutBounce},
+            {"easeinoutbounce", EaseInOutBounce}
+        };
+        // lowercase the name, making the lookup case insensitive
+        std::transform(name.begin(), name.end(), name.begin(), ::tolower);
+        if (!easingStrToFunc.contains(name)) { return linear; }
+        return getEasingFunction( easingStrToFunc.at(name) );
     }
 
     const char* getStringEasingFunction( easingFunction function ) {
