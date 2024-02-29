@@ -3,7 +3,7 @@
 #include "easing.h"
 
 // settings to be filled in from ini file
-static class Settings {
+class Settings {
     public:
     struct OverlayData {
         bool enabled = true;
@@ -21,7 +21,7 @@ static class Settings {
         float minDelta = 0.01f;
         float maxDelta = 0.015f;
         float maxDeltaPos = 0.015f;
-    } stamina, magicka, health, defaultValues;
+    } stamina, magicka, health, const defaultValues;
     const std::vector<OverlayData*> stats = {&stamina, &magicka, &health};
     int sleepTime = 25;
     std::string iniPath = "StatFX.ini";
@@ -31,6 +31,15 @@ static class Settings {
         {"Magicka", "StatFXImodMag"},
         {"Health", "StatFXImodHealth"}
     };
+    // reset to default values
+    void Reset() {
+        stamina = OverlayData();
+        magicka = OverlayData();
+        health = OverlayData();
+        sleepTime = 25;
+        iniPath = "StatFX.ini";
+        reload = true;
+    }
 } settings;
 
 // state enum for main thread to check
@@ -92,6 +101,8 @@ void initSettings() {
         str.erase(std::remove(str.begin(), str.end(), ')'), str.end());
         return strLower(str);
     };
+    // reinitialize settings
+    settings.Reset();
     auto skyrimPath = std::filesystem::current_path().string();
     logger::info("INI Config: Reading '{}' file for settings", "..\\Data\\SKSE\\Plugins\\" + settings.iniPath);
     try {
@@ -109,14 +120,18 @@ void initSettings() {
         if (iniSleepTime.empty() ) {
             logger::warn("INI Config: Global Section: SleepTime not found: Using default value");
         } else {
-            try { settings.sleepTime = round(std::stof( iniSleepTime )); }
+            try { settings.sleepTime = static_cast<int>(round(std::stof( iniSleepTime ))); }
             catch (const std::exception& e) {
                 logger::error("{}", e.what());
                 logger::warn("INI Config: Global Section: Error reading SleepTime '{}': Using default value", iniSleepTime);
             }
         }
-        // Set no reload flag if defined
-        auto iniReload = iniStruct.get("Global").get("Reload");
+        // Set no reload flag if defined (try variations on key)
+        std::string iniReload = "";
+        for (auto key: {"Reload","ReloadFlag","AutoReload","AutoReloadFlag","AutoLoad","Refresh","AutoRefresh","Sync"}) {
+            iniReload = iniStruct.get("Global").get(key);
+            if (!iniReload.empty()) break;
+        }
         if (!iniReload.empty() && normalizeStr(iniReload)=="false") {
             logger::info("INI Config: Reload flag set to false");
             settings.reload = false;
@@ -124,14 +139,34 @@ void initSettings() {
         // lambda to init a stat's overlay (stamina, magicka, health)
         auto initOverlay = [strLower, normalizeStr](Settings::OverlayData *stat, std::string section) {
             logger::info("INI Config: Initializing settings for section: '{}'", section);
-            // Check if disable flag for this overlay is set in ini
-            auto iniDisabled = iniStruct.get(section).get("Disabled");
+            // Check if disable flag for this overlay is set in ini (try variations on key "disabled")
+            std::string iniDisabled = "";
+            for (auto key: {"Disabled","Disable","Off","Inactive","Paused","Pause"}) {
+                iniDisabled = iniStruct.get(section).get(key);
+                if (!iniDisabled.empty()) break;
+            }
             if (!iniDisabled.empty() && normalizeStr(iniDisabled)=="true") {
-                logger::info("INI Config: Disabling {} overlay: manual disabled flag set to True", section);
+                logger::info("INI Config: Disabling {} overlay: manual disabled flag set", section);
                 stat->enabled = false;
                 return;
             }
-            auto iniEditorID = iniStruct.get(section).get("EditorID");
+            // Check if disable flag for this overlay in ini (try variations on key "enabled")
+            std::string iniEnabled = "";
+            for (auto key: {"Enabled","Enable","On","Active","Start","Run","Go"}) {
+                iniEnabled = iniStruct.get(section).get(key);
+                if (!iniEnabled.empty()) break;
+            }
+            if (!iniEnabled.empty() && normalizeStr(iniEnabled)=="false") {
+                logger::info("INI Config: Disabling {} overlay: manual disable flag set", section);
+                stat->enabled = false;
+                return;
+            }
+            // try variation on key EditorId
+            std::string iniEditorID = "";
+            for (auto key: {"EditorID","Imod","ImodID","ImodEditorID","ImodFormID","FormID","ID","EditorFormID","ImodFormID","Form","Name"}) {
+                iniEditorID = iniStruct.get(section).get(key);
+                if (!iniEditorID.empty()) break;
+            }
             logger::info("INI Config: Editor ID read: '{}'", iniEditorID);
             if (iniEditorID.empty()) {
                 logger::warn("INI Config: EditorID is empty, using default: '{}'", section, settings.defaultEditorIDs.at(section));
@@ -173,7 +208,7 @@ void initSettings() {
                         strVals.push_back(substr);
                     }
                     for (int i=0; i<4; i++) {
-                        if (!i<strVals.size()) {
+                        if (i>=strVals.size()) {
                             logger::warn("INI Config: {} Section: TintColor RGBA '{}' is missing some values. Using default (255,255,255,0) for the missing ones", section, iniTintColor);
                             break;
                         }
@@ -203,10 +238,13 @@ void initSettings() {
             std::vector<std::pair<float*, std::string>> cinematics = {
                 {&stat->contrastAdd, "ContrastAdd"},
                 {&stat->contrastMult, "ContrastMult"},
+                {&stat->contrastMult, "Contrast"},
                 {&stat->brightnessAdd, "BrightnessAdd"},
                 {&stat->brightnessMult, "BrightnessMult"},
+                {&stat->brightnessMult, "Brightness"},
                 {&stat->saturationAdd, "SaturationAdd"},
-                {&stat->saturationMult, "SaturationMult"}
+                {&stat->saturationMult, "SaturationMult"},
+                {&stat->saturationMult, "Saturation"}
             };
             for (auto [dest, key]: cinematics) {
                 if (!iniStruct.get(section).get(key).empty()) {
@@ -221,7 +259,12 @@ void initSettings() {
             }
             // Fill in curve range info from ini
             float startF=1.0f, endF=0.0f;
-            auto iniRange = iniStruct.get(section).get("Range");
+            // try variations of key Range
+            std::string iniRange = "";
+            for (auto key: {"Range","CurveRange","StartEnd","StatRange","EffectRange","FromTo"}) {
+                iniRange = iniStruct.get(section).get(key);
+                if (!iniRange.empty()) break;
+            }
             if (!iniRange.empty()) {
                 // remove white space and parantheses
                 iniRange.erase(std::remove(iniRange.begin(), iniRange.end(), ' '), iniRange.end());
@@ -257,21 +300,30 @@ void initSettings() {
                 }
             }
             // legacy start and end fraction
-            auto iniStartFraction = iniStruct.get(section).get("StartFraction");
-            auto iniEndFraction = iniStruct.get(section).get("EndFraction");
+            // try variations of key StartFraction and EndFraction
+            std::string iniStartFraction = "";
+            for (auto key: {"StartFraction","Start","To","Upper","Upperbound","UpperBound"}) {
+                iniStartFraction = iniStruct.get(section).get(key);
+                if (!iniStartFraction.empty()) break;
+            }
             if (!iniStartFraction.empty()) {
                 try { startF = std::stof( iniStartFraction ); }
                 catch (const std::exception& e) {
                     logger::error("{}", e.what());
-                    logger::warn("INI Config: {} Section: Could not understand StartFraction '{}': Using default (Start: 1.0)", section, iniStartFraction);
+                    logger::warn("INI Config: {} Section: Could not understand StartFraction '{}': Using default (Start: {:.2})", section, iniStartFraction, settings.defaultValues.startFraction);
                     startF = 1.0f;
                 }
+            }
+            std::string iniEndFraction = "";
+            for (auto key: {"EndFraction","End","From","Lower","Lowerbound","LowerBound"}) {
+                iniEndFraction = iniStruct.get(section).get(key);
+                if (!iniEndFraction.empty()) break;
             }
             if (!iniEndFraction.empty()) {
                 try { endF = std::stof( iniEndFraction ); }
                 catch (const std::exception& e) {
                     logger::error("{}", e.what());
-                    logger::warn("INI Config: {} Section: Could not understand EndFraction '{}': Using default (End: 0.0)", section, iniEndFraction);
+                    logger::warn("INI Config: {} Section: Could not understand EndFraction '{}': Using default (End: {:.2})", section, iniEndFraction, settings.defaultValues.endFraction);
                     endF = 0.0f;
                 }
             }
@@ -289,8 +341,8 @@ void initSettings() {
             stat->startFraction = startF;
             stat->endFraction = endF;
             // get easing function value from ini (try variations on key)
-            easing::easingFunction easingFunction;
-            std::string iniEasingFunction;
+            easing::easingFunction easingFunction = settings.defaultValues.easingFunction;
+            std::string iniEasingFunction = "";
             for (auto key: {"EasingFunction","Ease","Function","Curve","Easing","EasingFunc",
                 "CurveFunction","CurveFunc","EaseFunc","EaseFunction","CurveType","EasingCurve","EaseCurve"}) {
                 iniEasingFunction = iniStruct.get(section).get(key);
@@ -338,7 +390,7 @@ void initSettings() {
                 }
                 if (fadeTimeNeg <= 0.0f || fadeTimePos <= 0.0f) goto SKIP_FADE_TIME; //negative value or zero is parse fail token, dont continue
                 // convert fade time seconds to delta percentage per tick (sleepTime ms per tick)
-                auto secsToTicks = [](float secs)->int { return round(secs*1000.0f/settings.sleepTime); };
+                auto secsToTicks = [](float secs)->int { return static_cast<int>(round(secs*1000.0f/settings.sleepTime)); };
                 auto curveRange = abs(stat->startFraction - stat->endFraction); // the percentage (between 0 and 1) of the stat which we want to have a duration of fade time seconds
                 auto secsToDelta = [secsToTicks,curveRange](float secs)->float { return curveRange/secsToTicks(secs); };
                 maxDeltaNeg = secsToDelta(fadeTimeNeg); maxDeltaPos = secsToDelta(fadeTimePos);
@@ -386,7 +438,8 @@ void initSettings() {
         logger::info("INI Config: ALL SETTINGS DONE LOADING FROM INI FILE");
         logger::info("SETTINGS LOADED: [Global] SleepTime:'{}' Reload:'{}'", settings.sleepTime, settings.reload);
         for (auto [section, setting]: sectionToSetting) {
-            if (setting->enabled) logger::info("SETTINGS LOADED: [{}] ID:'{}' Tint:({:.2},{:.2},{:.2},{:.2}) Contrast:(x{:.2}+{:.2}) Brightness:(x{:.2}+{:.2}) Saturation:(x{:.2}+{:.2}) Range:({:.2},{:.2}) Curve:'{}' Delta:({:.4},{:.4})", section, setting->editorID, setting->tint.red, setting->tint.green, setting->tint.blue, setting->tint.alpha, setting->contrastMult, setting->contrastAdd, setting->brightnessMult, setting->brightnessAdd, setting->saturationMult, setting->saturationAdd, setting->startFraction, setting->endFraction, easing::getStringEasingFunction(setting->easingFunction), setting->minDelta, setting->maxDelta);
+            if (setting->enabled) logger::info("SETTINGS LOADED: [{}] EditorID:'{}' Tint:({:.2},{:.2},{:.2},{:.2}) Contrast:(x{:.2}+{:.2}) Brightness:(x{:.2}+{:.2}) Saturation:(x{:.2}+{:.2}) Range:({:.2},{:.2}) Curve:'{}' Delta:({:.4},-{:.4},+{:.4})", section, setting->editorID, setting->tint.red, setting->tint.green, setting->tint.blue, setting->tint.alpha, setting->contrastMult, setting->contrastAdd, setting->brightnessMult, setting->brightnessAdd, setting->saturationMult, setting->saturationAdd, setting->endFraction, setting->startFraction, easing::getStringEasingFunction(setting->easingFunction), setting->minDelta, setting->maxDelta, setting->maxDeltaPos);
+            else logger::info("SETTINGS LOADED: [{}] Disabled", section);
         }
 
     } catch (const std::exception& e) {
@@ -396,6 +449,33 @@ void initSettings() {
         return;
     }
 
+}
+void initForms() { //MUST ONLY BE CALLED AFTER INIT SETTINGS
+    // Load ImageSpaceModifier Forms
+    logger::info("Loading Imod Forms");
+    // auto defaultImod = RE::TESForm::LookupByEditorID<RE::TESImageSpaceModifier>("defaultDesaturateImod");
+    imods.stamina = RE::TESForm::LookupByEditorID<RE::TESImageSpaceModifier>(settings.stamina.editorID);
+    imods.magicka = RE::TESForm::LookupByEditorID<RE::TESImageSpaceModifier>(settings.magicka.editorID);
+    imods.health = RE::TESForm::LookupByEditorID<RE::TESImageSpaceModifier>(settings.health.editorID);
+    // for (auto imod: {imods.stamina, imods.magicka, imods.health}) { imod = defaultImod->CreateDuplicateForm(true,imod)->As<RE::TESImageSpaceModifier>(); }
+    // update imagespace modifier forms with values from settings
+    auto updateImod = [](RE::TESImageSpaceModifier *imod, Settings::OverlayData stat) {
+        if (imod) {
+            imod->tintColor->colorData->keys[0] = RE::NiColorKey(0.0f, stat.tint);
+            imod->cinematic.contrast.add->floatData->keys[0] = RE::NiFloatKey(0.0f, stat.contrastAdd);
+            imod->cinematic.contrast.mult->floatData->keys[0] = RE::NiFloatKey(0.0f, stat.contrastMult);
+            imod->cinematic.brightness.add->floatData->keys[0] = RE::NiFloatKey(0.0f, stat.brightnessAdd);
+            imod->cinematic.brightness.mult->floatData->keys[0] = RE::NiFloatKey(0.0f, stat.brightnessMult);
+            imod->cinematic.saturation.add->floatData->keys[0] = RE::NiFloatKey(0.0f, stat.saturationAdd);
+            imod->cinematic.saturation.mult->floatData->keys[0] = RE::NiFloatKey(0.0f, stat.saturationMult);
+        }
+    };
+    logger::info("Loading Imod Forms: attempting to updateImods - Stamina");
+    updateImod(imods.stamina, settings.stamina);
+    logger::info("Loading Imod Forms: attempting to updateImods - Magicka");
+    updateImod(imods.magicka, settings.magicka);
+    logger::info("Loading Imod Forms: attempting to updateImods - Health");
+    updateImod(imods.health, settings.health);
 }
 
 // ================================================================================================
@@ -496,8 +576,8 @@ void MainThread() {
     auto tick = [approach,easedValue](float *current, float *actual,
         RE::ActorValue avEnum,
         Settings::OverlayData statOverlayData,
-        RE::ImageSpaceModifierInstanceForm *imodInstance,
-        RE::TESImageSpaceModifier *imod) {
+        RE::ImageSpaceModifierInstanceForm **imodInstance,
+        RE::TESImageSpaceModifier **imod) {
             // update the actual resource percentage
             *actual = GetPercentageAV(player, avEnum);
             // short circuit if the change is less than minDelta
@@ -505,8 +585,8 @@ void MainThread() {
             // update current resource percentage to approach the actual resource percentage using configured deltas
             *current = approach(*current, *actual, statOverlayData.maxDelta, statOverlayData.maxDeltaPos);
             // update image space modifiers
-            if (imodInstance) RE::ImageSpaceModifierInstanceForm::Stop(imod);
-            imodInstance = RE::ImageSpaceModifierInstanceForm::Trigger(imod, easedValue(*current,statOverlayData.startFraction,statOverlayData.endFraction,statOverlayData.easingFunction), nullptr);
+            if (*imodInstance) { RE::ImageSpaceModifierInstanceForm::Stop(*imod); *imodInstance = nullptr; }
+            *imodInstance = RE::ImageSpaceModifierInstanceForm::Trigger(*imod, easedValue(*current,statOverlayData.startFraction,statOverlayData.endFraction,statOverlayData.easingFunction), nullptr);
     };
     // main loop
     try{
@@ -519,9 +599,9 @@ void MainThread() {
                 }
                 try {
                     // process tick for each stat: update values and image modifiers according to configured deltas
-                    if (settings.health.enabled) tick(&s_current.health, &s_actual.health, RE::ActorValue::kHealth, settings.health, imodInstances.health, imods.health);
-                    if (settings.stamina.enabled) tick(&s_current.stamina, &s_actual.stamina, RE::ActorValue::kStamina, settings.stamina, imodInstances.stamina, imods.stamina);
-                    if (settings.magicka.enabled) tick(&s_current.magicka, &s_actual.magicka, RE::ActorValue::kMagicka, settings.magicka, imodInstances.magicka, imods.magicka);
+                    if (settings.health.enabled) tick(&s_current.health, &s_actual.health, RE::ActorValue::kHealth, settings.health, &imodInstances.health, &imods.health);
+                    if (settings.stamina.enabled) tick(&s_current.stamina, &s_actual.stamina, RE::ActorValue::kStamina, settings.stamina, &imodInstances.stamina, &imods.stamina);
+                    if (settings.magicka.enabled) tick(&s_current.magicka, &s_actual.magicka, RE::ActorValue::kMagicka, settings.magicka, &imodInstances.magicka, &imods.magicka);
                 } catch (const std::exception& e) {
                     logger::error("{}", e.what());
                     logger::error("Main thread exception: Pausing for 5 seconds");
@@ -531,7 +611,12 @@ void MainThread() {
                 // state is PAUSE
                 if (state_current != State::Pause) { // log state change from run to pause
                     logger::info("Main thread: Paused");
+                    for (auto [imod,instance]: imodAndInstance) { // stop active image space modifiers
+                        if (*instance) { RE::ImageSpaceModifierInstanceForm::Stop(*imod); instance = nullptr; }
+                    }
+
                     state_current = State::Pause;
+
                 }
             }
             std::this_thread::sleep_for(std::chrono::milliseconds(settings.sleepTime));
@@ -542,34 +627,6 @@ void MainThread() {
         state = State::Kill;
     }
     logger::info("Main thread stopped: Kill state");
-}
-
-void initForms() { //MUST ONLY BE CALLED AFTER INIT SETTINGS
-    // Load ImageSpaceModifier Forms
-    logger::info("Loading Imod Forms");
-    // auto defaultImod = RE::TESForm::LookupByEditorID<RE::TESImageSpaceModifier>("defaultDesaturateImod");
-    imods.stamina = RE::TESForm::LookupByEditorID<RE::TESImageSpaceModifier>(settings.stamina.editorID);
-    imods.magicka = RE::TESForm::LookupByEditorID<RE::TESImageSpaceModifier>(settings.magicka.editorID);
-    imods.health = RE::TESForm::LookupByEditorID<RE::TESImageSpaceModifier>(settings.health.editorID);
-    // for (auto imod: {imods.stamina, imods.magicka, imods.health}) { imod = defaultImod->CreateDuplicateForm(true,imod)->As<RE::TESImageSpaceModifier>(); }
-    // update imagespace modifier forms with values from settings
-    auto updateImod = [](RE::TESImageSpaceModifier *imod, Settings::OverlayData stat) {
-        if (imod) {
-            imod->tintColor->colorData->keys[0] = RE::NiColorKey(0.0f, stat.tint);
-            imod->cinematic.contrast.add->floatData->keys[0] = RE::NiFloatKey(0.0f, stat.contrastAdd);
-            imod->cinematic.contrast.mult->floatData->keys[0] = RE::NiFloatKey(0.0f, stat.contrastMult);
-            imod->cinematic.brightness.add->floatData->keys[0] = RE::NiFloatKey(0.0f, stat.brightnessAdd);
-            imod->cinematic.brightness.mult->floatData->keys[0] = RE::NiFloatKey(0.0f, stat.brightnessMult);
-            imod->cinematic.saturation.add->floatData->keys[0] = RE::NiFloatKey(0.0f, stat.saturationAdd);
-            imod->cinematic.saturation.mult->floatData->keys[0] = RE::NiFloatKey(0.0f, stat.saturationMult);
-        }
-    };
-    logger::info("Loading Imod Forms: attempting to updateImods - Stamina");
-    updateImod(imods.stamina, settings.stamina);
-    logger::info("Loading Imod Forms: attempting to updateImods - Magicka");
-    updateImod(imods.magicka, settings.magicka);
-    logger::info("Loading Imod Forms: attempting to updateImods - Health");
-    updateImod(imods.health, settings.health);
 }
 
 // On Data Loaded Callback
