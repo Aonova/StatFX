@@ -21,7 +21,7 @@ class Settings {
         float minDelta = 0.01f;
         float maxDelta = 0.015f;
         float maxDeltaPos = 0.015f;
-    } stamina, magicka, health, const defaultValues;
+    } stamina, magicka, health, defaultValues;
     const std::vector<OverlayData*> stats = {&stamina, &magicka, &health};
     int sleepTime = 25;
     std::string iniPath = "StatFX.ini";
@@ -412,8 +412,13 @@ void initSettings() {
                 logger::warn("INI Config: {} Section: Could not understand MaxDelta '{}': Using default value", section, iniMaxDelta);
             }
             auto iniMaxDeltaPos = iniStruct.get(section).get("MaxDeltaPos");
-            try {if (!iniMaxDeltaPos.empty()) {maxDeltaPos = std::stof( iniMaxDeltaPos );}} // override maxDeltaPos only if the key is in the ini
-            catch (const std::exception& e) {
+            try {
+                if (!iniMaxDeltaPos.empty()) {
+                    maxDeltaPos = std::stof( iniMaxDeltaPos );
+                } else { // if maxDeltaPos is not defined, default to being the same as maxDeltaNeg
+                    maxDeltaPos = maxDeltaNeg;
+                }
+            } catch (const std::exception& e) {
                 logger::error("{}", e.what());
                 logger::warn("INI Config: {} Section: Could not understand MaxDeltaPos '{}': Using default value", section, iniMaxDeltaPos);
             }
