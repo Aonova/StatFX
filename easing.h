@@ -226,7 +226,7 @@ namespace easing
             {"easeinsine", EaseInSine}, {"sine", EaseInSine}, {"sin(x)", EaseInSine}, {"1", EaseInSine},
             {"easeoutsine", EaseOutSine},
             {"easeinoutsine", EaseInOutSine},
-            {"easeinquad", EaseInQuad}, {"quad", EaseInQuad}, {"x^2", EaseInQuad}, {"quadratic", EaseInQuad}, {"2", EaseInSine},
+            {"easeinquad", EaseInQuad}, {"quad", EaseInQuad}, {"x^2", EaseInQuad}, {"quadratic", EaseInQuad}, {"2", EaseInQuad},
             {"easeoutquad", EaseOutQuad},
             {"easeinoutquad", EaseInOutQuad},
             {"easeincubic", EaseInCubic}, {"cubic", EaseInCubic}, {"x^3", EaseInCubic}, {"cubed", EaseInCubic}, {"3", EaseInCubic},
