@@ -3,7 +3,7 @@
 #include "easing.h"
 
 // settings to be filled in from ini file
-class Settings {
+static class Settings {
     public:
     struct OverlayData {
         bool enabled = true;
@@ -41,6 +41,8 @@ class Settings {
         reload = true;
     }
 } settings;
+
+
 
 // state enum for main thread to check
 enum class State { Pause, Run, Kill };
@@ -80,7 +82,6 @@ static std::vector<std::pair<RE::TESImageSpaceModifier**, RE::ImageSpaceModifier
     {&imods.health, &imodInstances.health}
 };
 
-mINI::INIStructure iniStruct;
 // Read settings file and fill out settings struct
 void initSettings() {
     logger::info("INI Config: INITIALIZATION");
@@ -113,7 +114,7 @@ void initSettings() {
             return;
         }
         mINI::INIFile iniFile(skyrimPath + "\\Data\\SKSE\\Plugins\\" + settings.iniPath);
-        iniStruct.clear(); // clear iniStruct
+        mINI::INIStructure iniStruct;
         iniFile.read(iniStruct);
         // get global settings
         auto iniSleepTime = iniStruct.get("Global").get("SleepTime");
@@ -137,7 +138,7 @@ void initSettings() {
             settings.reload = false;
         }
         // lambda to init a stat's overlay (stamina, magicka, health)
-        auto initOverlay = [strLower, normalizeStr](Settings::OverlayData *stat, std::string section) {
+        auto initOverlay = [strLower, normalizeStr,iniStruct](Settings::OverlayData *stat, std::string section) {
             logger::info("INI Config: Initializing settings for section: '{}'", section);
             // Check if disable flag for this overlay is set in ini (try variations on key "disabled")
             std::string iniDisabled = "";
@@ -157,7 +158,7 @@ void initSettings() {
                 if (!iniEnabled.empty()) break;
             }
             if (!iniEnabled.empty() && normalizeStr(iniEnabled)=="false") {
-                logger::info("INI Config: Disabling {} overlay: manual disable flag set", section);
+                logger::info("INI Config: Section {}: Disabling overlay: manual disable flag set", section);
                 stat->enabled = false;
                 return;
             }
@@ -167,15 +168,18 @@ void initSettings() {
                 iniEditorID = iniStruct.get(section).get(key);
                 if (!iniEditorID.empty()) break;
             }
-            logger::info("INI Config: Editor ID read: '{}'", iniEditorID);
+            logger::info("INI Config: Section {}: Editor ID read: '{}'", section, iniEditorID);
             if (iniEditorID.empty()) {
-                logger::warn("INI Config: EditorID is empty, using default: '{}'", section, settings.defaultEditorIDs.at(section));
+                logger::warn("INI Config: Section {}: EditorID is empty, using default: '{}'", section, settings.defaultEditorIDs.at(section));
                 iniEditorID = settings.defaultEditorIDs.at(section);
-                return;
             }
             stat->editorID = iniEditorID;
-            // Fill in tint color settings from ini if they exist, otherwise keep default
-            auto iniTintColor = iniStruct.get(section).get("TintColor"); // this is a hex color code: https://rgbcolorpicker.com for instance
+            // Fill in tint color settings from ini if they exist, otherwise keep default (try variations on key "TintColor")
+            std::string iniTintColor = "";
+            for (auto key: {"TintColor","Tint","Color","Colour","TintColour","TintRGB","TintRGBA"}) {
+                iniTintColor = iniStruct.get(section).get(key);
+                if (!iniTintColor.empty()) break;
+            } // this is a hex color code: https://rgbcolorpicker.com for instance
             float tintR=0.0f, tintG=0.0f, tintB=0.0f, tintA=0.0f;
             std::vector<float*> tints = {&tintR, &tintG, &tintB, &tintA};
             if (!iniTintColor.empty()) {
@@ -394,7 +398,7 @@ void initSettings() {
                 auto curveRange = abs(stat->startFraction - stat->endFraction); // the percentage (between 0 and 1) of the stat which we want to have a duration of fade time seconds
                 auto secsToDelta = [secsToTicks,curveRange](float secs)->float { return curveRange/secsToTicks(secs); };
                 maxDeltaNeg = secsToDelta(fadeTimeNeg); maxDeltaPos = secsToDelta(fadeTimePos);
-                logger::info("INI Config: {} Section: FadeTime '{}' parsed as MaxDeltaNeg: {:.4} MaxDeltaPos: {:.4}", section, iniFadeTime, maxDeltaNeg, maxDeltaPos);
+                logger::info("INI Config: {} Section: FadeTime '{}' parsed as {}s = MaxDeltaNeg: {:.4} and {}s = MaxDeltaPos: {:.4}", section, iniFadeTime, fadeTimeNeg, maxDeltaNeg, fadeTimePos, maxDeltaPos);
 
 
             } SKIP_FADE_TIME: // label to skip the rest of the block if fade time could not be processed (to avoid having to handle useless cascading errors)
@@ -406,46 +410,52 @@ void initSettings() {
                 logger::warn("INI Config: {} Section: Could not understand MinDelta '{}': Using default value", section, iniMinDelta);
             }
             auto iniMaxDelta = iniStruct.get(section).get("MaxDelta");
-            try {if (!iniMaxDelta.empty()) {maxDeltaNeg = maxDeltaNeg = std::stof( iniMaxDelta );}} // default both neg and positive maxDelta to same value
+            try {if (!iniMaxDelta.empty()) {maxDeltaPos = maxDeltaNeg = std::stof( iniMaxDelta );}} // default both neg and positive maxDelta to same value
             catch (const std::exception& e) {
                 logger::error("{}", e.what());
                 logger::warn("INI Config: {} Section: Could not understand MaxDelta '{}': Using default value", section, iniMaxDelta);
             }
             auto iniMaxDeltaPos = iniStruct.get(section).get("MaxDeltaPos");
             try {
-                if (!iniMaxDeltaPos.empty()) {
-                    maxDeltaPos = std::stof( iniMaxDeltaPos );
-                } else { // if maxDeltaPos is not defined, default to being the same as maxDeltaNeg
-                    maxDeltaPos = maxDeltaNeg;
-                }
+                if (!iniMaxDeltaPos.empty()) maxDeltaPos = std::stof( iniMaxDeltaPos );
             } catch (const std::exception& e) {
                 logger::error("{}", e.what());
                 logger::warn("INI Config: {} Section: Could not understand MaxDeltaPos '{}': Using default value", section, iniMaxDeltaPos);
             }
             // update the actual values
             stat->minDelta = minDelta; stat->maxDelta = maxDeltaNeg; stat->maxDeltaPos = maxDeltaPos;
-            // set minDelta to slightly less than max if it is higher than max
-            if (stat->minDelta > stat->maxDelta) {
-                logger::warn("INI Config: {} Section: MinDelta '{:.4}' is higher than MaxDelta '{:.4}': Setting MinDelta to MaxDelta-0.001", section, stat->minDelta, stat->maxDelta);
-                stat->minDelta = stat->maxDelta - 0.001f;
+            // if maxDelta is less than zero, set it to default
+            if (stat->maxDelta <= 0.0f) {
+                logger::warn("INI Config: {} Section: MaxDelta '{:.4}' is less than 0: Using default value: {:.4}", section, stat->maxDelta, settings.defaultValues.maxDelta);
+                stat->maxDelta = settings.defaultValues.maxDelta;
             }
+            // same with maxDelta pos
+            if (stat->maxDeltaPos <= 0.0f) {
+                logger::warn("INI Config: {} Section: MaxDeltaPos '{:.4}' is less than 0: Using default value: {:.4}", section, stat->maxDeltaPos, settings.defaultValues.maxDeltaPos);
+                stat->maxDeltaPos = settings.defaultValues.maxDeltaPos;
+            }
+            // set minDelta to slightly less than max if it is higher than max
+            if (stat->minDelta > std::min(stat->maxDelta, stat->maxDeltaPos)) {
+                logger::warn("INI Config: {} Section: MinDelta '{:.4}' is higher than MaxDelta '{:.4}': Setting MinDelta to .8 of MaxDelta", section, stat->minDelta, std::min(stat->maxDelta, stat->maxDeltaPos));
+                stat->minDelta = std::min(stat->maxDelta, stat->maxDeltaPos)*0.8f;
+
+            }
+            // if minDelta is less than 0, set it to 80% of maxDelta
+            if (stat->minDelta <= 0.0f) {
+                logger::warn("INI Config: {} Section: MinDelta '{:.4}' is less than 0: Setting MinDelta to .8 of MaxDelta", section, stat->minDelta);
+                stat->minDelta = stat->maxDelta*0.8f;
+            }
+            // log the final stats for this section
+            if (stat->enabled) logger::info("SETTINGS LOADED: [{}] EditorID:'{}' Tint:({:.2},{:.2},{:.2},{:.2}) Contrast:(x{:.2}+{:.2}) Brightness:(x{:.2}+{:.2}) Saturation:(x{:.2}+{:.2}) Range:({:.2},{:.2}) Curve:'{}' Delta:({:.4},-{:.4},+{:.4})", section, stat->editorID, stat->tint.red, stat->tint.green, stat->tint.blue, stat->tint.alpha, stat->contrastMult, stat->contrastAdd, stat->brightnessMult, stat->brightnessAdd, stat->saturationMult, stat->saturationAdd, stat->endFraction, stat->startFraction, easing::getStringEasingFunction(stat->easingFunction), stat->minDelta, stat->maxDelta, stat->maxDeltaPos);
+            else logger::info("SETTINGS LOADED: [{}] Disabled", section);
         };
-        std::map<std::string, Settings::OverlayData*> sectionToSetting = {
-            {"Stamina", &settings.stamina},
-            {"Magicka", &settings.magicka},
-            {"Health", &settings.health}
-        };
-        // run init for each stat (health, magicka, stamina)
-        for (auto [section, setting]: sectionToSetting) {
-            initOverlay(setting, section);
-        }
-        // log test assertions
+        initOverlay(&(settings.health), "Health");
+        initOverlay(&(settings.magicka), "Magicka");
+        initOverlay(&(settings.stamina), "Stamina");
+        // log
         logger::info("INI Config: ALL SETTINGS DONE LOADING FROM INI FILE");
         logger::info("SETTINGS LOADED: [Global] SleepTime:'{}' Reload:'{}'", settings.sleepTime, settings.reload);
-        for (auto [section, setting]: sectionToSetting) {
-            if (setting->enabled) logger::info("SETTINGS LOADED: [{}] EditorID:'{}' Tint:({:.2},{:.2},{:.2},{:.2}) Contrast:(x{:.2}+{:.2}) Brightness:(x{:.2}+{:.2}) Saturation:(x{:.2}+{:.2}) Range:({:.2},{:.2}) Curve:'{}' Delta:({:.4},-{:.4},+{:.4})", section, setting->editorID, setting->tint.red, setting->tint.green, setting->tint.blue, setting->tint.alpha, setting->contrastMult, setting->contrastAdd, setting->brightnessMult, setting->brightnessAdd, setting->saturationMult, setting->saturationAdd, setting->endFraction, setting->startFraction, easing::getStringEasingFunction(setting->easingFunction), setting->minDelta, setting->maxDelta, setting->maxDeltaPos);
-            else logger::info("SETTINGS LOADED: [{}] Disabled", section);
-        }
+
 
     } catch (const std::exception& e) {
         logger::error("{}", e.what());
